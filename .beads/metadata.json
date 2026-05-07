@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "skill_mentor",
+  "project_id": "da1d6cc2-6070-43cd-a360-f94256795cdf"
+}
