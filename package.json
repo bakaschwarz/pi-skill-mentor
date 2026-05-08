@@ -1,0 +1,39 @@
+{
+    "name": "pi-skill-mentor",
+    "version": "0.0.1",
+    "description": "Pi Skill Mentor Extension",
+    "type": "module",
+    "main": "skill-mentor/index.ts",
+    "scripts": {
+        "test": "vitest run",
+        "lint": "eslint .",
+        "typecheck": "tsc --noEmit",
+        "verify": "npm run lint; npm run typecheck; npm run test"
+    },
+    "keywords": [
+        "pi-extension"
+    ],
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "@types/node": "^20.19.39",
+        "typescript": "^5.9.3",
+        "vitest": "^1.6.1",
+        "eslint": "^10.3.0",
+        "eslint-config-prettier": "^10.1.8",
+        "typescript-eslint": "^8.59.2"
+    },
+    "dependencies": {
+        "@ai-sdk/openai": "^3.0.63",
+        "@earendil-works/pi-coding-agent": "^0.74.0",
+        "ai": "^6.0.176",
+        "gray-matter": "^4.0.3",
+        "yaml": "^2.8.4",
+        "zod": "^4.4.3"
+    },
+    "files": [
+        "./skill-mentor/**/*.ts",
+        "README.md",
+        "./sample-skill.md"
+    ]
+}
