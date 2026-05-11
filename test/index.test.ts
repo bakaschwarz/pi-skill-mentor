@@ -50,11 +50,78 @@ vi.mock('fs', () => ({
   }
 }));
 
-import extension from '../skill-mentor/index.js';
+import extension, { resolveApiKey } from '../skill-mentor/index.js';
+
+describe('Pi Skill Mentor Config & API Key', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.MY_CUSTOM_KEY;
+    delete process.env.OPENAI_API_KEY;
+  });
+
+  it('resolves API key from apiKeyEnvVar priority', () => {
+    process.env.MY_CUSTOM_KEY = 'env-var-key';
+    const key = resolveApiKey({
+      model: 'test',
+      apiKey: 'some-literal',
+      apiKeyEnvVar: 'MY_CUSTOM_KEY',
+      triggerOnUserMessages: true,
+      triggerOnAgentMessages: false
+    });
+    expect(key).toBe('env-var-key');
+  });
+
+  it('resolves API key from apiKey as env var fallback', () => {
+    process.env.MY_CUSTOM_KEY = 'fallback-env-key';
+    const key = resolveApiKey({
+      model: 'test',
+      apiKey: 'MY_CUSTOM_KEY',
+      apiKeyEnvVar: '',
+      triggerOnUserMessages: true,
+      triggerOnAgentMessages: false
+    });
+    expect(key).toBe('fallback-env-key');
+  });
+
+  it('resolves API key from apiKey literal', () => {
+    const key = resolveApiKey({
+      model: 'test',
+      apiKey: 'sk-literal-key',
+      apiKeyEnvVar: '',
+      triggerOnUserMessages: true,
+      triggerOnAgentMessages: false
+    });
+    expect(key).toBe('sk-literal-key');
+  });
+
+  it('resolves API key from OPENAI_API_KEY', () => {
+    process.env.OPENAI_API_KEY = 'default-env-key';
+    const key = resolveApiKey({
+      model: 'test',
+      apiKey: '',
+      apiKeyEnvVar: '',
+      triggerOnUserMessages: true,
+      triggerOnAgentMessages: false
+    });
+    expect(key).toBe('default-env-key');
+  });
+
+  it('returns empty string if no key is found', () => {
+    const key = resolveApiKey({
+      model: 'test',
+      apiKey: '',
+      apiKeyEnvVar: '',
+      triggerOnUserMessages: true,
+      triggerOnAgentMessages: false
+    });
+    expect(key).toBe('');
+  });
+});
 
 describe('Pi Skill Mentor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.OPENAI_API_KEY = 'test-key';
 
     mocks.existsSyncMock.mockReturnValue(true);
     mocks.readFileSyncMock.mockImplementation((filePath: string) => {
@@ -120,7 +187,7 @@ describe('Pi Skill Mentor', () => {
 
     expect(mocks.defaultResourceLoaderMock).toHaveBeenCalledWith({
       cwd: process.cwd(),
-      agentDir: '~/.pi/agent'
+      agentDir: require('path').join(require('os').homedir(), '.pi', 'agent')
     });
     expect(mocks.loaderReloadMock).toHaveBeenCalledTimes(1);
     expect(mocks.generateObjectMock).toHaveBeenCalledTimes(1);
@@ -174,5 +241,125 @@ describe('Pi Skill Mentor', () => {
 
     expect(mocks.generateObjectMock).not.toHaveBeenCalled();
     expect(sendUserMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('skips agent messages when triggerOnAgentMessages is false', async () => {
+    mocks.readFileSyncMock.mockImplementation((filePath: string) => {
+      if (filePath.endsWith('skill-mentor.json')) {
+        return JSON.stringify({ triggerOnAgentMessages: false });
+      }
+      return `---\ntriggers:\n  - idea\ndescription: Captures ideas\n---\n# Skill`;
+    });
+
+    const onMock = vi.fn();
+    const sendUserMessageMock = vi.fn();
+    const pi = {
+      on: onMock,
+      sendUserMessage: sendUserMessageMock
+    } as any;
+
+    extension(pi);
+    const messageEndHandler = onMock.mock.calls.find(([eventName]) => eventName === 'message_end')?.[1];
+
+    await messageEndHandler({
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'I am an agent saying something.' }]
+      }
+    });
+
+    expect(mocks.generateObjectMock).not.toHaveBeenCalled();
+    expect(sendUserMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('silently skips if api key is missing', async () => {
+    mocks.readFileSyncMock.mockImplementation((filePath: string) => {
+      if (filePath.endsWith('skill-mentor.json')) {
+        return JSON.stringify({ triggerOnUserMessages: true });
+      }
+      return `---\ntriggers:\n  - idea\ndescription: Captures ideas\n---\n# Skill`;
+    });
+    delete process.env.OPENAI_API_KEY; // Ensure no default key
+
+    const onMock = vi.fn();
+    const sendUserMessageMock = vi.fn();
+    const pi = {
+      on: onMock,
+      sendUserMessage: sendUserMessageMock
+    } as any;
+
+    extension(pi);
+    const messageEndHandler = onMock.mock.calls.find(([eventName]) => eventName === 'message_end')?.[1];
+
+    await messageEndHandler({
+      type: 'message_end',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: 'Save this idea' }]
+      }
+    });
+
+    expect(mocks.generateObjectMock).not.toHaveBeenCalled();
+    expect(sendUserMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('skips user messages when triggerOnUserMessages is false', async () => {
+    mocks.readFileSyncMock.mockImplementation((filePath: string) => {
+      if (filePath.endsWith('skill-mentor.json')) {
+        return JSON.stringify({ triggerOnUserMessages: false });
+      }
+      return `---\ntriggers:\n  - idea\ndescription: Captures ideas\n---\n# Skill`;
+    });
+
+    const onMock = vi.fn();
+    const sendUserMessageMock = vi.fn();
+    const pi = {
+      on: onMock,
+      sendUserMessage: sendUserMessageMock
+    } as any;
+
+    extension(pi);
+    const messageEndHandler = onMock.mock.calls.find(([eventName]) => eventName === 'message_end')?.[1];
+
+    await messageEndHandler({
+      type: 'message_end',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: 'Please save this idea for later.' }]
+      }
+    });
+
+    expect(mocks.generateObjectMock).not.toHaveBeenCalled();
+    expect(sendUserMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('creates default config with correct defaults if it does not exist', async () => {
+    mocks.existsSyncMock.mockImplementation((filePath: string) => {
+      return !filePath.endsWith('skill-mentor.json');
+    });
+
+    const onMock = vi.fn();
+    const pi = { on: onMock, sendUserMessage: vi.fn() } as any;
+
+    extension(pi);
+    const messageEndHandler = onMock.mock.calls.find(([eventName]) => eventName === 'message_end')?.[1];
+
+    await messageEndHandler({
+      type: 'message_end',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: 'text' }]
+      }
+    });
+
+    expect(mocks.writeFileSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('skill-mentor.json'),
+      expect.stringContaining('"triggerOnUserMessages": true')
+    );
+    expect(mocks.writeFileSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('skill-mentor.json'),
+      expect.stringContaining('"triggerOnAgentMessages": false')
+    );
   });
 });

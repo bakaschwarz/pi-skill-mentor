@@ -6,12 +6,23 @@ import * as yaml from 'yaml';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 type MessageEndEvent = Extract<ExtensionEvent, { type: 'message_end' }>;
 
 const DEFAULT_MODEL = 'adesso-openai/gpt-4o-mini';
 const INSTRUCTION_PREFIX = 'Execute skill ';
 const SKILL_MENTOR_CUSTOM_TYPE = 'skill-mentor-instruction';
+
+const ConfigSchema = z.object({
+  model: z.string().default(DEFAULT_MODEL),
+  apiKey: z.string().default(''),
+  apiKeyEnvVar: z.string().default(''),
+  triggerOnUserMessages: z.boolean().default(true),
+  triggerOnAgentMessages: z.boolean().default(false),
+});
+
+export type SkillMentorConfig = z.infer<typeof ConfigSchema>;
 
 // Schema for the LLM response
 const SkillMatchSchema = z.object({
@@ -59,9 +70,21 @@ async function handleMessageEnd(event: MessageEndEvent, pi: ExtensionAPI): Promi
 
     const modelConfig = loadModelConfig();
 
+    if (event.message.role === 'user' && !modelConfig.triggerOnUserMessages) {
+      return;
+    }
+    if (event.message.role === 'assistant' && !modelConfig.triggerOnAgentMessages) {
+      return;
+    }
+
+    const resolvedApiKey = resolveApiKey(modelConfig);
+    if (!resolvedApiKey) {
+      return;
+    }
+
     const loader = new DefaultResourceLoader({
       cwd: process.cwd(),
-      agentDir: '~/.pi/agent'
+      agentDir: path.join(os.homedir(), '.pi', 'agent')
     });
     await loader.reload();
 
@@ -76,7 +99,7 @@ async function handleMessageEnd(event: MessageEndEvent, pi: ExtensionAPI): Promi
     }
 
     const openai = createOpenAI({
-      // Uses OPENAI_API_KEY from environment variables
+      apiKey: resolvedApiKey
     });
 
     const model = openai(modelConfig.model || DEFAULT_MODEL);
@@ -170,25 +193,43 @@ function sendInstruction(pi: ExtensionAPI, instruction: string): void {
   pi.sendUserMessage(instruction, { deliverAs: 'followUp' });
 }
 
-function loadModelConfig(): { model: string } {
-  const configDir = path.join(process.env.HOME || '~', '.pi', 'agent');
+export function loadModelConfig(): SkillMentorConfig {
+  const configDir = path.join(os.homedir(), '.pi', 'agent');
   const configPath = path.join(configDir, 'skill-mentor.json');
+  const defaultConfig = ConfigSchema.parse({});
 
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true });
   }
 
   if (!fs.existsSync(configPath)) {
-    fs.writeFileSync(configPath, JSON.stringify({ model: DEFAULT_MODEL }, null, 2));
-    return { model: DEFAULT_MODEL };
+    fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
+    return defaultConfig;
   }
 
   try {
     const configFile = fs.readFileSync(configPath, 'utf8');
-    return JSON.parse(configFile);
+    const parsed = JSON.parse(configFile);
+    return ConfigSchema.parse(parsed);
   } catch {
-    return { model: DEFAULT_MODEL };
+    return defaultConfig;
   }
+}
+
+export function resolveApiKey(config: SkillMentorConfig): string {
+  if (config.apiKeyEnvVar && process.env[config.apiKeyEnvVar]) {
+    return process.env[config.apiKeyEnvVar]!;
+  }
+  if (config.apiKey && process.env[config.apiKey]) {
+    return process.env[config.apiKey]!;
+  }
+  if (config.apiKey) {
+    return config.apiKey;
+  }
+  if (process.env.OPENAI_API_KEY) {
+    return process.env.OPENAI_API_KEY;
+  }
+  return '';
 }
 
 function extractSkillsWithTriggers(skills: Array<{ name: string; description?: string; filePath?: string }>): Array<{ name: string; description: string; triggers: string[] }> {
