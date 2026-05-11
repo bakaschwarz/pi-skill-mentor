@@ -11,6 +11,7 @@ type MessageEndEvent = Extract<ExtensionEvent, { type: 'message_end' }>;
 
 const DEFAULT_MODEL = 'adesso-openai/gpt-4o-mini';
 const INSTRUCTION_PREFIX = 'Execute skill ';
+const SKILL_MENTOR_CUSTOM_TYPE = 'skill-mentor-instruction';
 
 // Schema for the LLM response
 const SkillMatchSchema = z.object({
@@ -37,17 +38,22 @@ export default function (pi: ExtensionAPI): void {
  */
 async function handleMessageEnd(event: MessageEndEvent, pi: ExtensionAPI): Promise<void> {
   try {
-    if (!isSupportedRole(event.message.role)) {
+    if (!isSupportedMessage(event.message)) {
       return;
     }
 
+    // Type guard to ensure content property exists
+    if (!('content' in event.message)) {
+      return;
+    }
+    
     const messageText = extractMessageText(event.message.content);
     if (!messageText) {
       return;
     }
 
     // Prevent recursive matching on our own follow-up instructions
-    if (isSkillMentorInstruction(messageText)) {
+    if (isSkillMentorMessage(event.message) || isSkillMentorInstruction(messageText)) {
       return;
     }
 
@@ -78,28 +84,31 @@ async function handleMessageEnd(event: MessageEndEvent, pi: ExtensionAPI): Promi
     const result = await generateObject({
       model,
       schema: SkillMatchSchema,
-      prompt: `You are a skill matching assistant. Your task is to determine if a user's request matches any of the provided skills based on their trigger phrases.
+      prompt: `You are a skill matching assistant. Your task is to determine if the latest message in the conversation (which could be from the user OR the agent) implies that a skill should be executed.
 
-User's request: "${messageText}"
+Latest message to evaluate: "${messageText}"
+Message role: ${event.message.role}
 
 Available skills with their triggers:
 ${skillsWithTriggers.map(s => `- ${s.name}: ${s.description}\n  Triggers: ${s.triggers.join(', ')}`).join('\n')}
 
 Examples of good matches:
-- Request: "Save this idea about improving the UI" -> Good match for a skill with triggers like ["idea", "concept", "suggestion"]
-- Request: "Remember this link for later" -> Good match for a skill with triggers like ["save link", "bookmark", "remember url"]
+- User message: "Save this idea about improving the UI" -> Good match for a skill with triggers like ["idea", "concept", "suggestion"]
+- User message: "Remember this link for later" -> Good match for a skill with triggers like ["save link", "bookmark", "remember url"]
+- Agent message: "I should capture this as a concept entry first" -> Good match when a trigger-like action is explicitly proposed
 
 Examples of bad matches:
-- Request: "What do you think about this idea?" -> Bad match, just discussing ideas without intent to capture/save
-- Request: "Ideas are interesting" -> Bad match, general comment without action
+- User message: "What do you think about this idea?" -> Bad match, just discussing ideas without intent to capture/save
+- User message: "Ideas are interesting" -> Bad match, general comment without action
+- Agent message: "Interesting point, let's continue" -> Bad match, conversational continuation without a concrete skill action
 
-Determine if the user's request is a good match for any skill. Only return matched=true if the user clearly intends to use one of the skills.`
+Determine if the latest message is a good match for any skill. Only return matched=true if the message clearly indicates intent to execute a skill action.`
     });
 
     if (result.object.matched && result.object.skillName) {
       const reason = result.object.reason || 'Matched trigger intent';
       const instruction = `${INSTRUCTION_PREFIX}${result.object.skillName} - Reason: ${reason}`;
-      pi.sendUserMessage(instruction, { deliverAs: 'followUp' });
+      sendInstruction(pi, instruction);
     }
   } catch (error) {
     console.error('Error in skill-mentor extension:', error);
@@ -107,8 +116,12 @@ Determine if the user's request is a good match for any skill. Only return match
   }
 }
 
-function isSupportedRole(role: unknown): role is 'user' | 'assistant' {
-  return role === 'user' || role === 'assistant';
+function isSupportedMessage(message: MessageEndEvent['message']): message is MessageEndEvent['message'] & { role: 'user' | 'assistant'; content: unknown } {
+  return (message.role === 'user' || message.role === 'assistant') && 'content' in message;
+}
+
+function isSkillMentorMessage(message: MessageEndEvent['message']): boolean {
+  return 'customType' in message && message.customType === SKILL_MENTOR_CUSTOM_TYPE;
 }
 
 function extractMessageText(content: unknown): string {
@@ -136,6 +149,25 @@ function extractMessageText(content: unknown): string {
 
 function isSkillMentorInstruction(text: string): boolean {
   return /^Execute skill .+ - Reason: .+$/.test(text);
+}
+
+function sendInstruction(pi: ExtensionAPI, instruction: string): void {
+  if (typeof (pi as Partial<ExtensionAPI>).sendMessage === 'function') {
+    pi.sendMessage(
+      {
+        customType: SKILL_MENTOR_CUSTOM_TYPE,
+        content: instruction,
+        display: false
+      },
+      {
+        triggerTurn: true,
+        deliverAs: 'followUp'
+      }
+    );
+    return;
+  }
+
+  pi.sendUserMessage(instruction, { deliverAs: 'followUp' });
 }
 
 function loadModelConfig(): { model: string } {

@@ -4,9 +4,9 @@ This extension helps users discover and invoke skills based on natural language 
 
 ## How it works
 
-1. Listens to the `before_agent_start` event
-2. Reads skill files and extracts YAML frontmatter with `triggers`
-3. Uses an LLM to match user prompts with appropriate skills
+1. Listens to the `message_end` event to capture both user prompts and agent responses
+2. Uses `DefaultResourceLoader` to locate active skill files and extracts YAML frontmatter with `triggers`
+3. Uses an LLM to match conversation messages (from both user and agent) with appropriate skills
 4. Automatically injects skill execution instructions when a match is found
 
 ## Configuration

@@ -11,9 +11,11 @@
         "verify": "npm run lint; npm run typecheck; npm run test"
     },
     "keywords": [
-        "pi-extension"
+        "pi-package",
+        "pi",
+        "ai"
     ],
-    "author": "",
+    "author": "bakaschwarz",
     "license": "MIT",
     "devDependencies": {
         "@types/node": "^20.19.39",

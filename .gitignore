@@ -4,3 +4,7 @@
 *.db
 .beads-credential-key
 node_modules/
+context.md
+plan.md
+progress.md
+dist/

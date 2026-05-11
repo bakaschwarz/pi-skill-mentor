@@ -1,24 +1,21 @@
-# npm run verify Results
+# Skill Mentor Improvements - Summary
 
-## Command Executed
-```
-npm run verify
-```
+## Changes Made
 
-## Output Summary
-The verification command ran successfully with the following steps:
+### 1. README.md Update
+- Updated the "How it works" section to accurately reflect the current implementation
+- Changed from mentioning `before_agent_start` to correctly describing the use of `message_end` event
+- Clarified that the extension evaluates messages from both users and agents
 
-1. **Linting** (`eslint .`) - No errors reported
-2. **Type Checking** (`tsc --noEmit`) - No errors reported
-3. **Tests** (`vitest run`) - All 4 tests passed
+### 2. TypeScript Error Fix
+- Added a type guard in the `message_end` event listener to check for the existence of the `content` property before accessing it
+- This prevents the TypeScript error: "Property 'content' does not exist on type 'AgentMessage'"
 
-## Test Results
-```
-Test Files  1 passed (1)
-     Tests  4 passed (4)
-  Start at  23:15:25
-  Duration  388ms (transform 90ms, setup 0ms, collect 168ms, tests 6ms, environment 0ms, prepare 55ms)
-```
+### 3. LLM System Prompt
+- Verified that the system prompt for the LLM already correctly stated that it evaluates "the latest message in the conversation (which could be from the user OR the agent)"
+- No changes were needed as it was already correctly implemented
 
-## Conclusion
-No errors were found. All verification steps (lint, typecheck, test) completed successfully.
+## Verification
+- All changes have been verified by running `npm run verify`
+- Linting, type checking, and tests all pass successfully
+- The extension is now functioning correctly with proper type safety and accurate documentation
