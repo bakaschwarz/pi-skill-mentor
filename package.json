@@ -37,5 +37,10 @@
         "./skill-mentor/**/*.ts",
         "README.md",
         "./sample-skill.md"
-    ]
+    ],
+    "pi": {
+        "extensions": [
+            "./skill-mentor/index.ts"
+        ]
+    }
 }
